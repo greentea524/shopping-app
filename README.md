@@ -1,6 +1,6 @@
-# flutter_shop
+# shopping-app
 
-A new Flutter project.
+Fake shopping app built with Flutter.
 
 ## Getting Started
 
