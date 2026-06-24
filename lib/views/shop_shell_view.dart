@@ -23,6 +23,7 @@ class _ShopShellViewState extends State<ShopShellView> {
   final List<OrderRecord> _orderHistory = <OrderRecord>[];
   ShippingOption _selectedShipping = ShippingOption.standard;
   int _selectedTabIndex = 0;
+  final Set<String> _loadingProducts = {};
 
   @override
   void initState() {
@@ -39,9 +40,12 @@ class _ShopShellViewState extends State<ShopShellView> {
 
   int get _cartItems => _cartService.itemCountByName(_cart);
 
-  void _addToCart(Product product) {
+  Future<void> _addToCart(Product product) async {
+    setState(() => _loadingProducts.add(product.name));
+    await Future.delayed(const Duration(milliseconds: 800));
     setState(() {
       _cartService.addToNamedCart(_cart, product);
+      _loadingProducts.remove(product.name);
     });
   }
 
@@ -67,25 +71,34 @@ class _ShopShellViewState extends State<ShopShellView> {
     return _cartService.asProductCart(_cart, demoCatalog);
   }
 
-  void _completePurchase(
+  Future<void> _completePurchase(
     Map<Product, int> purchasedCart,
     ShippingOption shipping,
-  ) {
+  ) async {
     final order = _orderService.createOrder(
       purchasedCart: purchasedCart,
       shipping: shipping,
     );
 
-    _storageService.saveOrder(order);
+    await _storageService.saveOrder(order);
 
     setState(() {
       _orderHistory.insert(0, order);
       _cart.clear();
       _selectedShipping = shipping;
     });
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Order placed successfully!'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+    }
   }
 
-  Future<void> _cancelOrder(int orderId) async {
+  Future<void> _cancelOrder(String orderId) async {
     await _storageService.updateOrderStatus(
       orderId,
       OrderStatus.cancelled,
@@ -96,7 +109,7 @@ class _ShopShellViewState extends State<ShopShellView> {
     });
   }
 
-  Future<void> _archiveOrder(int orderId) async {
+  Future<void> _archiveOrder(String orderId) async {
     await _storageService.updateOrderStatus(
       orderId,
       OrderStatus.archived,
@@ -104,6 +117,33 @@ class _ShopShellViewState extends State<ShopShellView> {
     setState(() {
       final order = _orderHistory.firstWhere((o) => o.id == orderId);
       order.status = OrderStatus.archived;
+    });
+  }
+
+  Future<void> _updateTracking(String orderId) async {
+    final order = _orderHistory.firstWhere((o) => o.id == orderId);
+    final statuses = [
+      TrackingStatus.processing,
+      TrackingStatus.shipped,
+      TrackingStatus.inTransit,
+      TrackingStatus.outForDelivery,
+      TrackingStatus.delivered,
+    ];
+
+    final currentIndex = statuses.indexOf(order.trackingStatus);
+    if (currentIndex < statuses.length - 1) {
+      final nextStatus = statuses[currentIndex + 1];
+      await _storageService.updateTrackingStatus(orderId, nextStatus);
+      setState(() {
+        order.trackingStatus = nextStatus;
+      });
+    }
+  }
+
+  Future<void> _deleteOrder(String orderId) async {
+    await _storageService.deleteOrder(orderId);
+    setState(() {
+      _orderHistory.removeWhere((o) => o.id == orderId);
     });
   }
 
@@ -135,77 +175,102 @@ class _ShopShellViewState extends State<ShopShellView> {
     final titles = ['Shop Play', 'Order History'];
 
     return Scaffold(
-      appBar: AppBar(
-        title: Text(titles[_selectedTabIndex]),
-        actions: [
-          if (_selectedTabIndex == 0)
-            Padding(
-              padding: const EdgeInsets.only(right: 16),
-              child: FilledButton.icon(
-                key: const Key('open-cart-button'),
-                onPressed: _openCart,
-                icon: const Icon(Icons.shopping_cart_outlined),
-                label: Text(
-                  'Cart: $_cartItems',
-                  key: const Key('cart-count'),
-                ),
-              ),
-            ),
-        ],
-      ),
-      body: IndexedStack(
-        index: _selectedTabIndex,
-        children: [
-          ListView(
-            padding: const EdgeInsets.all(16),
-            children: [
-              Text('Catalog', style: Theme.of(context).textTheme.headlineSmall),
-              const SizedBox(height: 12),
-              for (final product in demoCatalog)
-                Card(
-                  child: ListTile(
-                    leading: Icon(product.icon),
-                    title: Text(product.name),
-                    subtitle: Text(
-                      '${product.description}\n\$${product.price.toStringAsFixed(2)}',
-                    ),
-                    isThreeLine: true,
-                    trailing: FilledButton(
-                      onPressed: () => _addToCart(product),
-                      child: _cart.containsKey(product.name)
-                          ? Text('In Cart (${_cart[product.name]})')
-                          : const Text('Add'),
+          appBar: AppBar(
+            title: Text(titles[_selectedTabIndex]),
+            actions: [
+              if (_selectedTabIndex == 0)
+                Padding(
+                  padding: const EdgeInsets.only(right: 16),
+                  child: FilledButton.icon(
+                    key: const Key('open-cart-button'),
+                    onPressed: _openCart,
+                    icon: const Icon(Icons.shopping_cart_outlined),
+                    label: Text(
+                      'Cart: $_cartItems',
+                      key: const Key('cart-count'),
                     ),
                   ),
                 ),
-              const SizedBox(height: 12),
-              const Text(
-                'Tap the cart icon to edit quantities, choose shipping, and complete a fake purchase.',
+            ],
+          ),
+          body: IndexedStack(
+            index: _selectedTabIndex,
+            children: [
+              ListView(
+                padding: const EdgeInsets.all(16),
+                children: [
+                  Text('Catalog', style: Theme.of(context).textTheme.headlineSmall),
+                  const SizedBox(height: 12),
+                  for (final category in demoCatalog.map((p) => p.category).toSet().toList()) ...[
+                    Padding(
+                      padding: const EdgeInsets.only(top: 12, bottom: 6),
+                      child: Text(
+                        category,
+                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                    for (final product in demoCatalog.where((p) => p.category == category))
+                    Card(
+                      child: ListTile(
+                        leading: Icon(product.icon),
+                        title: Text(product.name),
+                        subtitle: Text(
+                          '${product.description}\n\$${product.price.toStringAsFixed(2)}',
+                        ),
+                        isThreeLine: true,
+                        trailing: FilledButton(
+                          onPressed: _loadingProducts.contains(product.name)
+                              ? null
+                              : () => _addToCart(product),
+                          child: _loadingProducts.contains(product.name)
+                              ? const SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: Colors.white,
+                                  ),
+                                )
+                              : _cart.containsKey(product.name)
+                                  ? Text('In Cart (${_cart[product.name]})')
+                                  : const Text('Add'),
+                        ),
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 12),
+                  const Text(
+                    'Tap the cart icon to edit quantities, choose shipping, and complete a fake purchase.',
+                  ),
+                ],
+              ),
+              OrderHistoryView(
+                orders: _orderHistory,
+                onCancelOrder: _cancelOrder,
+                onArchiveOrder: _archiveOrder,
+                onUpdateTracking: _updateTracking,
+                onDeleteOrder: _deleteOrder,
               ),
             ],
           ),
-          OrderHistoryView(
-            orders: _orderHistory,
-            onCancelOrder: _cancelOrder,
-            onArchiveOrder: _archiveOrder,
+          bottomNavigationBar: NavigationBar(
+            selectedIndex: _selectedTabIndex,
+            destinations: const [
+              NavigationDestination(icon: Icon(Icons.storefront), label: 'Shop'),
+              NavigationDestination(
+                icon: Icon(Icons.receipt_long),
+                label: 'History',
+              ),
+            ],
+            onDestinationSelected: (value) {
+              setState(() {
+                _selectedTabIndex = value;
+              });
+            },
           ),
-        ],
-      ),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _selectedTabIndex,
-        destinations: const [
-          NavigationDestination(icon: Icon(Icons.storefront), label: 'Shop'),
-          NavigationDestination(
-            icon: Icon(Icons.receipt_long),
-            label: 'History',
-          ),
-        ],
-        onDestinationSelected: (value) {
-          setState(() {
-            _selectedTabIndex = value;
-          });
-        },
-      ),
-    );
+        );
   }
 }
+

@@ -2,13 +2,14 @@ import 'package:flutter_shop/models/order_record.dart';
 import 'package:flutter_shop/models/product.dart';
 import 'package:flutter_shop/models/shipping_option.dart';
 import 'package:flutter_shop/services/cart_service.dart';
+import 'package:uuid/uuid.dart';
 
 class OrderService {
   OrderService({CartService? cartService})
     : _cartService = cartService ?? CartService();
 
   final CartService _cartService;
-  int _nextOrderId = 1;
+  static const uuid = Uuid();
 
   OrderRecord createOrder({
     required Map<Product, int> purchasedCart,
@@ -30,7 +31,7 @@ class OrderService {
         .toList();
 
     final record = OrderRecord(
-      id: _nextOrderId,
+      id: uuid.v4(),
       placedAt: placedAt ?? DateTime.now(),
       items: items,
       shippingLabel: shipping.label,
@@ -40,7 +41,6 @@ class OrderService {
       total: total,
     );
 
-    _nextOrderId += 1;
     return record;
   }
 }

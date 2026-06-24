@@ -39,7 +39,7 @@ class StorageService {
     return orders;
   }
 
-  Future<void> updateOrderStatus(int id, OrderStatus status) async {
+  Future<void> updateOrderStatus(String id, OrderStatus status) async {
     final key = 'order_$id';
     final jsonString = _ordersBox.get(key);
     if (jsonString != null) {
@@ -54,7 +54,22 @@ class StorageService {
     }
   }
 
-  Future<void> deleteOrder(int id) async {
+  Future<void> updateTrackingStatus(String id, TrackingStatus status) async {
+    final key = 'order_$id';
+    final jsonString = _ordersBox.get(key);
+    if (jsonString != null) {
+      try {
+        final decoded = jsonDecode(jsonString) as Map<String, dynamic>;
+        final order = OrderRecord.fromJson(decoded);
+        order.trackingStatus = status;
+        await saveOrder(order);
+      } catch (e) {
+        // Handle error
+      }
+    }
+  }
+
+  Future<void> deleteOrder(String id) async {
     await _ordersBox.delete('order_$id');
   }
 

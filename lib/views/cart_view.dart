@@ -34,6 +34,7 @@ class CartView extends StatefulWidget {
 class _CartViewState extends State<CartView> {
   late final Map<Product, int> _cart;
   late ShippingOption _shipping;
+  bool _isPurchasing = false;
 
   int get _itemCount => widget.cartService.itemCount(_cart);
 
@@ -80,7 +81,7 @@ class _CartViewState extends State<CartView> {
     widget.onShippingChanged(option);
   }
 
-  void _purchase() {
+  Future<void> _purchase() async {
     if (_itemCount == 0) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -90,11 +91,16 @@ class _CartViewState extends State<CartView> {
       return;
     }
 
+    setState(() => _isPurchasing = true);
+    await Future.delayed(const Duration(milliseconds: 1200));
+
     widget.onPurchase(Map<Product, int>.from(_cart), _shipping);
     setState(() {
       _cart.clear();
+      _isPurchasing = false;
     });
 
+    if (!mounted) return;
     showDialog<void>(
       context: context,
       builder: (context) {
@@ -227,9 +233,18 @@ class _CartViewState extends State<CartView> {
           const SizedBox(height: 16),
           FilledButton.icon(
             key: const Key('purchase-button'),
-            onPressed: _purchase,
-            icon: const Icon(Icons.shopping_bag_outlined),
-            label: const Text('Purchase (Fake)'),
+            onPressed: _isPurchasing ? null : _purchase,
+            icon: _isPurchasing
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
+                  )
+                : const Icon(Icons.shopping_bag_outlined),
+            label: Text(_isPurchasing ? 'Processing...' : 'Purchase (Fake)'),
           ),
           const SizedBox(height: 12),
           const Text('Swipe left on a cart item to remove it instantly.'),
